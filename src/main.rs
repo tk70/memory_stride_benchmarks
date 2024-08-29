@@ -11,6 +11,7 @@ fn main() {
 mod tests {
     use std::{
         hint::black_box,
+        ops::Mul,
         simd::{Simd, StdFloat},
     };
     use test::Bencher;
@@ -18,10 +19,10 @@ mod tests {
     pub type Cluster = Simd<f32, 8>;
 
     /// data size
-    const N_SMALL: usize = 10;
+    const N_SMALL: usize = 8;
 
     /// data size
-    const N_BIG: usize = 256;
+    const N_BIG: usize = 200;
 
     /// number of datasets
     const M: usize = 300;
@@ -35,11 +36,16 @@ mod tests {
     }
 
     #[inline(always)]
-    fn bench<T>(b: &mut Bencher, data_sets: &[T], f: impl Fn(&T)) {
+    fn bench<T>(
+        b: &mut Bencher,
+        data_sets: &[T],
+        result: &mut [Cluster],
+        f: impl Fn(&T, &mut [Cluster]),
+    ) {
         let mut i = 0;
         b.iter(|| {
             let data_set = &data_sets[i];
-            black_box(f(data_set));
+            black_box(f(data_set, result));
             i += 7;
             if i >= M {
                 i = 0;
@@ -67,18 +73,21 @@ mod tests {
         v
     }
 
-    fn compute_aos3(data_set: &Vec<S3>) -> Cluster {
+    fn compute_aos3(data_set: &Vec<S3>, result: &mut [Cluster]) -> Cluster {
         let mut sum = Cluster::splat(0.0);
-        for s3 in data_set {
-            sum += s3.a.mul_add(s3.b, s3.c);
+        for (s3, r) in data_set.iter().zip(result.iter_mut()) {
+            let tmp = s3.a.mul_add(s3.b, s3.c);
+            *r = tmp;
+            sum += tmp;
         }
         sum
     }
 
     fn bench_aos3_impl(b: &mut Bencher, n: usize) {
         let data_sets = make_datasets(|i| make_aos3(i, n));
-        bench(b, &data_sets, |data_set: &Vec<S3>| {
-            black_box(compute_aos3(data_set));
+        let mut result = vec![Cluster::splat(0.0); n];
+        bench(b, &data_sets, &mut result, |data_set, result| {
+            black_box(compute_aos3(data_set, result));
         });
     }
 
@@ -114,16 +123,19 @@ mod tests {
 
     fn bench_soa3_impl(b: &mut Bencher, n: usize) {
         let data_sets = make_datasets(|i| make_soa3(i, n));
-        bench(b, &data_sets, |data_set: &SoA3| {
-            black_box(compute_soa3(data_set));
+        let mut result = vec![Cluster::splat(0.0); n];
+        bench(b, &data_sets, &mut result, |data_set, result| {
+            black_box(compute_soa3(data_set, result));
         });
     }
 
-    fn compute_soa3(data_set: &SoA3) -> Cluster {
+    fn compute_soa3(data_set: &SoA3, result: &mut [Cluster]) -> Cluster {
         let mut sum = Cluster::splat(0.0);
         let n = data_set.a.len();
         for i in 0..n {
-            sum += data_set.a[i].mul_add(data_set.b[i], data_set.c[i]);
+            let tmp = data_set.a[i].mul_add(data_set.b[i], data_set.c[i]);
+            result[i] = tmp;
+            sum += tmp;
         }
         sum
     }
@@ -142,7 +154,11 @@ mod tests {
     fn test_3_benchmarks() {
         let aos3 = make_aos3(0, 10);
         let soa3 = make_soa3(0, 10);
-        assert_eq!(compute_aos3(&aos3), compute_soa3(&soa3));
+        let mut result = vec![Cluster::splat(0.0); 10];
+        assert_eq!(
+            compute_aos3(&aos3, &mut result),
+            compute_soa3(&soa3, &mut result)
+        );
     }
 
     // ------------------------------------------------------------------------
@@ -168,18 +184,21 @@ mod tests {
         v
     }
 
-    fn compute_aos5(data_set: &Vec<S5>) -> Cluster {
+    fn compute_aos5(data_set: &Vec<S5>, result: &mut [Cluster]) -> Cluster {
         let mut sum = Cluster::splat(0.0);
-        for s5 in data_set {
-            sum += s5.a.mul_add(s5.b, s5.c).mul_add(s5.d, s5.e);
+        for (s5, r) in data_set.iter().zip(result.iter_mut()) {
+            let tmp = s5.a.mul_add(s5.b, s5.c).mul_add(s5.d, s5.e);
+            *r = tmp;
+            sum += tmp;
         }
         sum
     }
 
     fn bench_aos5_impl(b: &mut Bencher, n: usize) {
         let data_sets = make_datasets(|i| make_aos5(i, n));
-        bench(b, &data_sets, |data_set: &Vec<S5>| {
-            black_box(compute_aos5(data_set));
+        let mut result = vec![Cluster::splat(0.0); n];
+        bench(b, &data_sets, &mut result, |data_set, result| {
+            black_box(compute_aos5(data_set, result));
         });
     }
 
@@ -221,18 +240,21 @@ mod tests {
 
     fn bench_soa5_impl(b: &mut Bencher, n: usize) {
         let data_sets = make_datasets(|i| make_soa5(i, n));
-        bench(b, &data_sets, |data_set: &SoA5| {
-            black_box(compute_soa5(data_set));
+        let mut result = vec![Cluster::splat(0.0); n];
+        bench(b, &data_sets, &mut result, |data_set, result| {
+            black_box(compute_soa5(data_set, result));
         });
     }
 
-    fn compute_soa5(data_set: &SoA5) -> Cluster {
+    fn compute_soa5(data_set: &SoA5, result: &mut [Cluster]) -> Cluster {
         let mut sum = Cluster::splat(0.0);
         let n = data_set.a.len();
         for i in 0..n {
-            sum += data_set.a[i]
+            let tmp = data_set.a[i]
                 .mul_add(data_set.b[i], data_set.c[i])
                 .mul_add(data_set.d[i], data_set.e[i]);
+            result[i] = tmp;
+            sum += tmp;
         }
         sum
     }
@@ -247,11 +269,70 @@ mod tests {
         bench_soa5_impl(b, N_BIG);
     }
 
+    // ------------------------------------------------------------------------
+
+    struct AoSblob5 {
+        data: Vec<Cluster>,
+    }
+
+    fn make_aos5_blob(seed: usize, n: usize) -> AoSblob5 {
+        let mut data = Vec::with_capacity(n * 5);
+        for i in seed..seed + n {
+            data.push(Cluster::splat(i as f32));
+            data.push(Cluster::splat((i / 3) as f32));
+            data.push(Cluster::splat((i * 2) as f32));
+            data.push(Cluster::splat((i + 3) as f32));
+            data.push(Cluster::splat((i * 4) as f32));
+        }
+        AoSblob5 { data }
+    }
+
+    fn compute_aos_blob5(data_set: &AoSblob5, result: &mut [Cluster]) -> Cluster {
+        let mut sum = Cluster::splat(0.0);
+        let mut i = 0;
+        for r in result.iter_mut() {
+            let tmp = data_set.data[i]
+                .mul_add(data_set.data[i + 1], data_set.data[i + 2])
+                .mul_add(data_set.data[i + 3], data_set.data[i + 4]);
+            *r = tmp;
+            sum += tmp;
+            i += 5;
+        }
+        sum
+    }
+
+    fn bench_aos_blob5_impl(b: &mut Bencher, n: usize) {
+        let data_sets = make_datasets(|i| make_aos5_blob(i, n));
+        let mut result = vec![Cluster::splat(0.0); n];
+        bench(b, &data_sets, &mut result, |data_set, result| {
+            black_box(compute_aos_blob5(data_set, result));
+        });
+    }
+
+    #[bench]
+    fn bench_5small_blob_aos(b: &mut Bencher) {
+        bench_aos_blob5_impl(b, N_SMALL);
+    }
+
+    #[bench]
+    fn bench_5big_blob_aos(b: &mut Bencher) {
+        bench_aos_blob5_impl(b, N_BIG);
+    }
+
     #[test]
     fn test_5_benchmarks() {
         let aos5 = make_aos5(0, 10);
         let soa5 = make_soa5(0, 10);
-        assert_eq!(compute_aos5(&aos5), compute_soa5(&soa5));
+        let aosblob5 = make_aos5_blob(0, 10);
+        let mut result = vec![Cluster::splat(0.0); 10];
+        assert_eq!(
+            compute_aos5(&aos5, &mut result),
+            compute_soa5(&soa5, &mut result)
+        );
+        assert_eq!(
+            compute_aos5(&aos5, &mut result),
+            compute_aos_blob5(&aosblob5, &mut result)
+        );
     }
 
     // ------------------------------------------------------------------------
@@ -282,21 +363,24 @@ mod tests {
         v
     }
 
-    fn compute_aos7(data_set: &Vec<S7>) -> Cluster {
+    fn compute_aos7(data_set: &Vec<S7>, result: &mut [Cluster]) -> Cluster {
         let mut sum = Cluster::splat(0.0);
-        for s7 in data_set {
-            sum +=
+        for (s7, r) in data_set.iter().zip(result.iter_mut()) {
+            let tmp =
                 s7.a.mul_add(s7.b, s7.c)
                     .mul_add(s7.d, s7.e)
                     .mul_add(s7.f, s7.g);
+            *r = tmp;
+            sum += tmp;
         }
         sum
     }
 
     fn bench_aos7_impl(b: &mut Bencher, n: usize) {
         let data_sets = make_datasets(|i| make_aos7(i, n));
-        bench(b, &data_sets, |data_set: &Vec<S7>| {
-            black_box(compute_aos7(data_set));
+        let mut result = vec![Cluster::splat(0.0); n];
+        bench(b, &data_sets, &mut result, |data_set, result| {
+            black_box(compute_aos7(data_set, result));
         });
     }
 
@@ -351,19 +435,22 @@ mod tests {
 
     fn bench_soa7_impl(b: &mut Bencher, n: usize) {
         let data_sets = make_datasets(|i| make_soa7(i, n));
-        bench(b, &data_sets, |data_set: &SoA7| {
-            black_box(compute_soa7(data_set));
+        let mut result = vec![Cluster::splat(0.0); n];
+        bench(b, &data_sets, &mut result, |data_set, result| {
+            black_box(compute_soa7(data_set, result));
         });
     }
 
-    fn compute_soa7(data_set: &SoA7) -> Cluster {
+    fn compute_soa7(data_set: &SoA7, result: &mut [Cluster]) -> Cluster {
         let mut sum = Cluster::splat(0.0);
         let n = data_set.a.len();
         for i in 0..n {
-            sum += data_set.a[i]
+            let tmp = data_set.a[i]
                 .mul_add(data_set.b[i], data_set.c[i])
                 .mul_add(data_set.d[i], data_set.e[i])
                 .mul_add(data_set.f[i], data_set.g[i]);
+            result[i] = tmp;
+            sum += tmp;
         }
         sum
     }
@@ -382,7 +469,11 @@ mod tests {
     fn test_7_benchmarks() {
         let aos7 = make_aos7(0, 10);
         let soa7 = make_soa7(0, 10);
-        assert_eq!(compute_aos7(&aos7), compute_soa7(&soa7));
+        let mut result = vec![Cluster::splat(0.0); 10];
+        assert_eq!(
+            compute_aos7(&aos7, &mut result),
+            compute_soa7(&soa7, &mut result)
+        );
     }
 
     // ------------------------------------------------------------------------
@@ -416,22 +507,25 @@ mod tests {
         v
     }
 
-    fn compute_aos9(data_set: &Vec<S9>) -> Cluster {
+    fn compute_aos9(data_set: &Vec<S9>, result: &mut [Cluster]) -> Cluster {
         let mut sum = Cluster::splat(0.0);
-        for s9 in data_set {
-            sum +=
+        for (s9, r) in data_set.iter().zip(result.iter_mut()) {
+            let tmp =
                 s9.a.mul_add(s9.b, s9.c)
                     .mul_add(s9.d, s9.e)
                     .mul_add(s9.f, s9.g)
                     .mul_add(s9.h, s9.i);
+            *r = tmp;
+            sum += tmp;
         }
         sum
     }
 
     fn bench_aos9_impl(b: &mut Bencher, n: usize) {
         let data_sets = make_datasets(|i| make_aos9(i, n));
-        bench(b, &data_sets, |data_set: &Vec<S9>| {
-            black_box(compute_aos9(data_set));
+        let mut result = vec![Cluster::splat(0.0); n];
+        bench(b, &data_sets, &mut result, |data_set, result| {
+            black_box(compute_aos9(data_set, result));
         });
     }
 
@@ -495,20 +589,23 @@ mod tests {
 
     fn bench_soa9_impl(b: &mut Bencher, n: usize) {
         let data_sets = make_datasets(|i| make_soa9(i, n));
-        bench(b, &data_sets, |data_set: &SoA9| {
-            black_box(compute_soa9(data_set));
+        let mut result = vec![Cluster::splat(0.0); n];
+        bench(b, &data_sets, &mut result, |data_set, result| {
+            black_box(compute_soa9(data_set, result));
         });
     }
 
-    fn compute_soa9(data_set: &SoA9) -> Cluster {
+    fn compute_soa9(data_set: &SoA9, result: &mut [Cluster]) -> Cluster {
         let mut sum = Cluster::splat(0.0);
         let n = data_set.a.len();
         for i in 0..n {
-            sum += data_set.a[i]
+            let tmp = data_set.a[i]
                 .mul_add(data_set.b[i], data_set.c[i])
                 .mul_add(data_set.d[i], data_set.e[i])
                 .mul_add(data_set.f[i], data_set.g[i])
                 .mul_add(data_set.h[i], data_set.i[i]);
+            result[i] = tmp;
+            sum += tmp;
         }
         sum
     }
@@ -527,6 +624,84 @@ mod tests {
     fn test_9_benchmarks() {
         let aos9 = make_aos9(0, 10);
         let soa9 = make_soa9(0, 10);
-        assert_eq!(compute_aos9(&aos9), compute_soa9(&soa9));
+        let mut result = vec![Cluster::splat(0.0); 10];
+        assert_eq!(
+            compute_aos9(&aos9, &mut result),
+            compute_soa9(&soa9, &mut result)
+        );
+    }
+
+    // ------------------------------------------------------------------------
+
+    fn compute_aos7_sparse(data_set: &Vec<S7>, result: &mut [Cluster]) -> Cluster {
+        let mut sum = Cluster::splat(0.0);
+        for (s7, r) in data_set.iter().zip(result.iter_mut()) {
+            let tmp = s7.a.mul_add(s7.c, s7.d).mul(s7.g);
+            *r = tmp;
+            sum += tmp;
+        }
+        sum
+    }
+
+    fn bench_aos7_sparse_impl(b: &mut Bencher, n: usize) {
+        let data_sets = make_datasets(|i| make_aos7(i, n));
+        let mut result = vec![Cluster::splat(0.0); n];
+        bench(b, &data_sets, &mut result, |data_set, result| {
+            black_box(compute_aos7_sparse(data_set, result));
+        });
+    }
+
+    #[bench]
+    fn bench_sparse_7small_aos(b: &mut Bencher) {
+        bench_aos7_sparse_impl(b, N_SMALL);
+    }
+
+    #[bench]
+    fn bench_sparse_7big_aos(b: &mut Bencher) {
+        bench_aos7_sparse_impl(b, N_BIG);
+    }
+
+    // ------------------------------------------------------------------------
+
+    fn bench_soa7_sparse_impl(b: &mut Bencher, n: usize) {
+        let data_sets = make_datasets(|i| make_soa7(i, n));
+        let mut result = vec![Cluster::splat(0.0); n];
+        bench(b, &data_sets, &mut result, |data_set, result| {
+            black_box(compute_soa7_sparse(data_set, result));
+        });
+    }
+
+    fn compute_soa7_sparse(data_set: &SoA7, result: &mut [Cluster]) -> Cluster {
+        let mut sum = Cluster::splat(0.0);
+        let n = data_set.a.len();
+        for i in 0..n {
+            let tmp = data_set.a[i]
+                .mul_add(data_set.c[i], data_set.d[i])
+                .mul(data_set.g[i]);
+            result[i] = tmp;
+            sum += tmp;
+        }
+        sum
+    }
+
+    #[bench]
+    fn bench_sparse_7small_soa(b: &mut Bencher) {
+        bench_soa7_sparse_impl(b, N_SMALL);
+    }
+
+    #[bench]
+    fn bench_sparse_7big_soa(b: &mut Bencher) {
+        bench_soa7_sparse_impl(b, N_BIG);
+    }
+
+    #[test]
+    fn test_sparse_7_benchmarks() {
+        let aos7 = make_aos7(0, 10);
+        let soa7 = make_soa7(0, 10);
+        let mut result = vec![Cluster::splat(0.0); 10];
+        assert_eq!(
+            compute_aos7_sparse(&aos7, &mut result),
+            compute_soa7_sparse(&soa7, &mut result)
+        );
     }
 }
