@@ -1,6 +1,12 @@
+cargo-features = ["profile-rustflags"]
+
 [package]
 name = "cache_bench"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+
+[profile.bench]
+opt-level = 3
+rustflags = ["-C", "target-cpu=native"]
